@@ -1,9 +1,8 @@
 import 'dart:collection';
 import 'dart:math';
 
-import 'package:computer/computer.dart';
-// import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:test_mintrocket/constants.dart';
 import 'package:test_mintrocket/models/FileElement.dart';
 import 'package:test_mintrocket/screens/files_list/files_list.dart';
@@ -16,11 +15,27 @@ class Home extends StatefulWidget {
 class _HomeState extends State<Home> {
 
   String statusFiles = "";
+  FlutterLocalNotificationsPlugin flnp;
+  var _r = Random();
+  Queue<int> waitFilesIndex;
+
+  bool get _isDisableSaveBut => 
+    fileElements.isEmpty || fileElements.any((x) => x.status == FileStatuses.loading);
+  
+  bool get _isDisableResetBut =>
+    fileElements.isEmpty;
 
   @override
   void initState() {
     super.initState();
     _setStringStatus();
+    flnp = FlutterLocalNotificationsPlugin();
+    var initializationSettingsAndroid = AndroidInitializationSettings('@mipmap/ic_launcher');
+    var initializationSettingsIOS = IOSInitializationSettings();
+    var initializationSettings = InitializationSettings(
+      initializationSettingsAndroid, initializationSettingsIOS);
+    
+    flnp.initialize(initializationSettings);
   }
 
   @override
@@ -64,10 +79,10 @@ class _HomeState extends State<Home> {
                   child: Text(
                     'Сбросить',
                     style: TextStyle(
-                      color: _isDisableResetBut() ? Colors.grey : Colors.black
+                      color: _isDisableResetBut ? Colors.grey : Colors.black
                     )
                   ),
-                  onPressed: _isDisableResetBut() ? null : _resetFilesHandle
+                  onPressed: _isDisableResetBut ? null : _resetFilesHandle
                 ),
                 Spacer(),
                 FlatButton(
@@ -75,10 +90,10 @@ class _HomeState extends State<Home> {
                   child: Text(
                     'Сохранить',
                     style: TextStyle(
-                      color: _isDisableSaveBut() ? Colors.grey : Colors.black
+                      color: _isDisableSaveBut ? Colors.grey : Colors.black
                     )
                   ),
-                  onPressed: _isDisableSaveBut() ? null : _saveFilesHandle
+                  onPressed: _isDisableSaveBut ? null : _saveFilesHandle
                 )
               ],
             )
@@ -88,7 +103,7 @@ class _HomeState extends State<Home> {
     );
   }
 
-  void _resetFilesHandle() {
+  void _resetFilesHandle() async {
     setState(() {
       fileElements.clear();
       _setStringStatus();
@@ -96,42 +111,59 @@ class _HomeState extends State<Home> {
   }
 
   Future _saveFilesHandle() async {
-    var waitFilesIndex = Queue.of(fileElements.asMap()
+    waitFilesIndex = Queue.of(fileElements.asMap()
                                               .keys
                                               .where((x) => fileElements[x].status == FileStatuses.waiting)
                                               .toList());
-    int currentOperations = 0;
-    var r = Random();
-    while(waitFilesIndex.length > 0) {
-      if (currentOperations <= countLoadingFiles) {
-          var delaySec = r.nextInt(boundsDelay.last - boundsDelay.first) + boundsDelay.first;
-          var index = waitFilesIndex.removeFirst();
-          setState(() {
-            if (fileElements.isNotEmpty) {
-              fileElements[index].status = FileStatuses.loading;
-            }
-            _setStringStatus();
-            currentOperations++;
-            });
-            await Future.delayed(Duration(seconds: delaySec), () {
-              setState(() {
-                if (fileElements.isNotEmpty) {
-                  fileElements[index].status = FileStatuses.completed;
-                }
-                _setStringStatus();
-                currentOperations--;
-            });
-          });
-      }
+
+    var firstNTasks = waitFilesIndex.take(countLoadingFiles)
+                                    .map((e) => 
+                                      _nextOperation()
+                                    );
+
+    Future.wait(firstNTasks).whenComplete(() async {
+      // Notificate
+      var androidPlatformChannelSpecifics = new AndroidNotificationDetails(
+        channelId, channelName, channelDesription,
+        importance: Importance.Max,
+        priority: Priority.Default);
+      var iOSPlatformChannelSpecifics = new IOSNotificationDetails();
+      var platformChannelSpecifics = new NotificationDetails(
+        androidPlatformChannelSpecifics, iOSPlatformChannelSpecifics);
+      await flnp.show(
+        0,
+        'Информация',
+        'Файлы сохранены',
+        platformChannelSpecifics,
+        payload: 'Default_Sound',
+      );
+    });
+  }
+
+  Future _nextOperation() async {
+    var delaySec = _r.nextInt(boundsDelay.last - boundsDelay.first) + boundsDelay.first;
+    if (waitFilesIndex.isEmpty) {
+      return;
     }
-  }
-
-  bool _isDisableResetBut() {
-    return fileElements.isEmpty;
-  }
-
-  bool _isDisableSaveBut() {
-    return fileElements.isEmpty || fileElements.any((e) => e.status == FileStatuses.loading);
+    var index = waitFilesIndex.removeFirst();
+    setState(() {
+      if (fileElements.isNotEmpty) {
+        fileElements[index].status = FileStatuses.loading;
+      }
+      _setStringStatus();
+    });
+    await Future.delayed(Duration(seconds: delaySec), () {
+      setState(() {
+        if (fileElements.isNotEmpty) {
+          fileElements[index].status = FileStatuses.completed;
+        }
+        _setStringStatus();
+      });
+    }).then((value) async {
+      if (waitFilesIndex.isNotEmpty) {
+        await _nextOperation();
+      }
+    });
   }
 
   void _setStringStatus() {
