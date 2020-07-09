@@ -9,8 +9,9 @@ enum FileStatuses {
 class FileElement {
   FileStatuses status;
   String name;
+  int id;
 
-  FileElement({@required this.name, @required this.status});
+  FileElement({@required this.name, @required this.status, @required this.id});
 }
 
 

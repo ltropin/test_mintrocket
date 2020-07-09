@@ -35,6 +35,7 @@ class _FilesListState extends State<FilesList> {
   void _addFileHandle() {
     setState(() {
       fileElements.add(FileElement(
+        id: DateTime.now().hashCode,
         name: 'Файл ${DateTime.now().hashCode}',
         status: FileStatuses.waiting
       ));

@@ -3,9 +3,12 @@ import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:list_ext/list_ext.dart';
+
 import 'package:test_mintrocket/constants.dart';
 import 'package:test_mintrocket/models/FileElement.dart';
 import 'package:test_mintrocket/screens/files_list/files_list.dart';
+
 
 class Home extends StatefulWidget {
   @override
@@ -17,7 +20,7 @@ class _HomeState extends State<Home> {
   String statusFiles = "";
   FlutterLocalNotificationsPlugin flnp;
   var _r = Random();
-  Queue<int> waitFilesIndex;
+  Queue<int> waitFilesId;
 
   bool get _isDisableSaveBut => 
     fileElements.isEmpty || fileElements.any((x) => x.status == FileStatuses.loading);
@@ -111,18 +114,15 @@ class _HomeState extends State<Home> {
   }
 
   Future _saveFilesHandle() async {
-    waitFilesIndex = Queue.of(fileElements.asMap()
-                                              .keys
-                                              .where((x) => fileElements[x].status == FileStatuses.waiting)
-                                              .toList());
+    waitFilesId = Queue.of(fileElements.where((x) => x.status == FileStatuses.waiting)
+                                       .map((x) => x.id)
+                                       .toList());
 
-    var firstNTasks = waitFilesIndex.take(countLoadingFiles)
-                                    .map((e) => 
-                                      _nextOperation()
-                                    );
+    var firstNTasks = waitFilesId.take(countLoadingFiles)
+                                 .map((e) => _nextOperation());
 
     Future.wait(firstNTasks).whenComplete(() async {
-      // Notificate
+      // Notify
       var androidPlatformChannelSpecifics = new AndroidNotificationDetails(
         channelId, channelName, channelDesription,
         importance: Importance.Max,
@@ -142,25 +142,31 @@ class _HomeState extends State<Home> {
 
   Future _nextOperation() async {
     var delaySec = _r.nextInt(boundsDelay.last - boundsDelay.first) + boundsDelay.first;
-    if (waitFilesIndex.isEmpty) {
+    if (waitFilesId.isEmpty) {
       return;
     }
-    var index = waitFilesIndex.removeFirst();
+    var id = waitFilesId.removeFirst();
     setState(() {
       if (fileElements.isNotEmpty) {
-        fileElements[index].status = FileStatuses.loading;
+        var loadEl = fileElements.firstWhereOrNull((el) => el.id == id);
+        if (loadEl != null) {
+          loadEl.status = FileStatuses.loading;
+        }
       }
       _setStringStatus();
     });
     await Future.delayed(Duration(seconds: delaySec), () {
       setState(() {
         if (fileElements.isNotEmpty) {
-          fileElements[index].status = FileStatuses.completed;
+          var completeEl = fileElements.firstWhereOrNull((el) => el.id == id);
+          if (completeEl != null) {
+            completeEl.status = FileStatuses.completed;
+          }
         }
         _setStringStatus();
       });
     }).then((value) async {
-      if (waitFilesIndex.isNotEmpty) {
+      if (waitFilesId.isNotEmpty) {
         await _nextOperation();
       }
     });
